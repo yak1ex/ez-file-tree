@@ -9,7 +9,9 @@
     enableFileSelection: true, // allow files to be selected
     multiSelect: false, // allow multiple files to be selected
     recursiveSelect: false, // recursively select a folders children
-    recursiveUnselect: true, // recursively unselect a folders children
+    recursiveUnselect: false, // recursively unselect a folders children
+    instatefulFolder: false, // only leaves have state
+    hasIndeterminate: false, // allow an indeterminate state for a folder
     icons: {
       chevronRight: 'fa fa-chevron-right',
       chevronDown: 'fa fa-chevron-down',
@@ -22,6 +24,20 @@
       return file.type === 'folder';
     }
   })
+
+  .directive('ezIndeterminate', [function() {
+    return {
+      restrict: 'A',
+      compile: function(element, attrs) {
+        if(!attrs.type || attrs.type.toLowerCase() !== 'checkbox') return angular.noop;
+        return function($scope, elems, attrs) {
+          $scope.$watch(attrs.ezIndeterminate, function(value) {
+            elems[0].indeterminate = !!value;
+          });
+        };
+      }
+    };
+  }])
 
   .directive('ezFileTree', ['$compile', '$timeout', '$parse', 'EzFileTreeConfig', function($compile, $timeout, $parse, EzFileTreeConfig) {
     return {
@@ -45,6 +61,16 @@
         return function (scope) {
           var init = function() {
             scope.config = angular.extend(config, scope.config); // merge scope config with the rest of the config
+            if(scope.config.instatefulFolder) {
+              scope.config.multiSelect = scope.config.recursiveSelect = scope.config.recursiveUnselect = true;
+            }
+            // sanity check
+            if(scope.config.recursiveSelect && !scope.config.multiSelect) {
+              throw new Error('recursiveSelect without multiSelect is useless');
+            }
+            if(scope.config.recursiveUnselect && !scope.config.multiSelect) {
+              throw new Error('recursiveUnselect without multiSelect is useless');
+            }
             scope.disableSelect = false;
 
             if (scope.config.multiSelect) {
@@ -145,11 +171,16 @@
            */
           var selectChildren = function(folder) {
             for (var key in folder[scope.config.childrenField]) {
-              folder[scope.config.childrenField][key]._selected = true;
-              folder[scope.config.childrenField][key]._active = true;
+              var child = folder[scope.config.childrenField][key];
+              child._selected = true;
+              child._active = true;
 
-              if (scope.config.isFolder(folder[scope.config.childrenField][key])) {
-                selectChildren(folder[scope.config.childrenField][key]);
+              if(!scope.config.isFolder(child) || !scope.config.instatefulFolder) {
+                scope.tree._selectedFiles[child[scope.config.idField]] = child;
+              }
+
+              if (scope.config.isFolder(child)) {
+                selectChildren(child);
               }
             }
           };
@@ -170,14 +201,16 @@
               return;
             }
 
-            if (scope.config.multiSelect) {
-              scope.tree._selectedFiles[file[scope.config.idField]] = file;
-            } else {
-              scope.tree._selectedFile = file;
-              unselectAll(scope.tree[scope.config.childrenField]);
-            }
+            if (!scope.config.instatefulFolder || !scope.config.isFolder(file)) {
+              if (scope.config.multiSelect) {
+                scope.tree._selectedFiles[file[scope.config.idField]] = file;
+              } else {
+                scope.tree._selectedFile = file;
+                unselectAll(scope.tree[scope.config.childrenField]);
+              }
 
-            file._selected = true;
+              file._selected = true;
+            }
 
             activate(file);
 
@@ -211,6 +244,7 @@
               }
             }
           };
+// FIXME: non-tree structure may miss update of folder states
 
           /**
            * Unselect all files in the tree
@@ -302,13 +336,41 @@
               }
               scope.disableSelect = false;
 
-              if (!file._selected) {
+              if (!scope.isChecked(file)) {
                 select(file);
               } else {
                 unselect(file);
               }
             }, 200);
           };
+
+          var recursiveCheck = function(file) {
+            if(scope.config.isFolder(file)) {
+              var result = [false, false];
+              for (var key in file[scope.config.childrenField]) {
+                var check = recursiveCheck(file[scope.config.childrenField][key]);
+                result[0] = result[0] || check[0];
+                result[1] = result[1] || check[1];
+                if(result[0] && result[1]) return result;
+              }
+              return result;
+            } else {
+              return file._selected ? [true, false] : [false, true];
+            }
+          };
+
+          scope.isIndeterminate = function(file) {
+            if(!scope.config.hasIndeterminate || !scope.config.isFolder(file)) return false;
+            var check = recursiveCheck(file);
+            return check[0] && check[1];
+          };
+
+          scope.isChecked = function(file) {
+            if(file._selected) return true;
+            if(!scope.config.instatefulFolder) return false;
+            var check = recursiveCheck(file);
+            return check[0] && !check[1];
+          }
 
           init();
         };

@@ -6,7 +6,7 @@
   </span>
 
   <label>
-    <input type="checkbox" ng-checked="data._selected" ng-click="select($event, data)" ng-show="showCheckbox(data)"/>
+    <input type="checkbox" ng-checked="isChecked(data)" ng-click="select($event, data)" ng-show="showCheckbox(data)" ez-indeterminate="isIndeterminate(data)" />
     <span ng-dblclick="toggle($event, data)">
       <span class="icon-container">
         <i ng-class="config.icons.folder" ng-show="config.isFolder(data)"></i>
